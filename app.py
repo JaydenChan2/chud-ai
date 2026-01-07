@@ -1,95 +1,128 @@
-# ALL CLAUDE CODE RN FOR PLACEHOLDER
-
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+import numpy as np
 import cv2
 
-# Handle MediaPipe import with fallback
-try:
-    import mediapipe as mp
-    mp_face_mesh = mp.solutions.face_mesh
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
-except AttributeError:
-    # Alternative import for problematic installations
-    from mediapipe.python.solutions import face_mesh as mp_face_mesh
-    from mediapipe.python.solutions import drawing_utils as mp_drawing
-    from mediapipe.python.solutions import drawing_styles as mp_drawing_styles
+class GeometricEngine:
+    def __init__(self, model_path='face_landmarker.task'):
+        # --- NEW TASKS API CONFIGURATION ---
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        
+        # We want facial blendshapes (for granular detail) and transformation matrix
+        options = vision.FaceLandmarkerOptions(
+            base_options=base_options,
+            output_face_blendshapes=True,
+            output_facial_transformation_matrixes=True,
+            num_faces=1,
+            min_face_detection_confidence=0.5
+        )
+        
+        try:
+            self.detector = vision.FaceLandmarker.create_from_options(options)
+            print(f"✅ Model loaded successfully: {model_path}")
+        except Exception as e:
+            print(f"❌ Failed to load model. Did you download 'face_landmarker.task'?\nError: {e}")
+            exit()
 
-def main():
-    # Initialize face mesh with optimized settings
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=2,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
-    
-    # Start webcam
-    cap = cv2.VideoCapture(0)
-    
-    if not cap.isOpened():
-        print("Error: Could not access webcam")
-        return
-    
-    print("Press 'ESC' to exit, 'SPACE' to toggle face mesh overlay")
-    show_mesh = True
-    
-    while True:
-        success, frame = cap.read()
-        if not success:
-            print("Failed to grab frame")
-            break
+    def get_landmarks(self, image_path):
+        """Returns numpy array of landmarks (x, y, z) scaled to image dimensions."""
+        # MediaPipe Tasks requires a specific MPImage format
+        cv_mat = cv2.imread(image_path)
+        if cv_mat is None:
+            raise ValueError(f"Image not found at {image_path}")
+
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv_mat)
         
-        # Flip frame horizontally for mirror effect
-        frame = cv2.flip(frame, 1)
+        # Run detection
+        detection_result = self.detector.detect(image)
         
-        # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if not detection_result.face_landmarks:
+            return None, None
+
+        # Extract the first face
+        face_landmarks = detection_result.face_landmarks[0]
         
-        # Process the frame
-        results = face_mesh.process(rgb_frame)
+        # Convert to Numpy (x, y, z)
+        h, w, c = cv_mat.shape
+        coords = np.array([(lm.x * w, lm.y * h, lm.z * w) for lm in face_landmarks])
         
-        # Draw face mesh if detected
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                if show_mesh:
-                    # Draw the face mesh tessellation
-                    mp_drawing.draw_landmarks(
-                        image=frame,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_TESSELATION,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
-                    )
-                    
-                    # Draw contours
-                    mp_drawing.draw_landmarks(
-                        image=frame,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_CONTOURS,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_contours_style()
-                    )
-                
-                # Display "Face Detected" text
-                cv2.putText(frame, "Face Detected!", (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        return coords, cv_mat
+
+    # --- GEOMETRIC MATH HELPER FUNCTIONS ---
+    def euclidean_dist(self, p1, p2):
+        return np.linalg.norm(p1 - p2)
+
+    def calculate_2d_angle(self, p1, p2):
+        """Angle relative to horizontal axis (for Canthal Tilt)."""
+        delta_y = p2[1] - p1[1]
+        delta_x = p2[0] - p1[0]
+        return np.degrees(np.arctan2(delta_y, delta_x))
+
+    def analyze(self, image_path):
+        landmarks, img = self.get_landmarks(image_path)
+        if landmarks is None:
+            print("No face detected.")
+            return
+
+        # --- LANDMARK MAPPING (Standard 478 Mesh) ---
+        # Eyes
+        left_inner, left_outer = landmarks[133], landmarks[33]
+        right_inner, right_outer = landmarks[362], landmarks[263]
         
-        # Display the frame
-        cv2.imshow('Face Detection', frame)
+        # Zygoma (Cheekbones)
+        left_zygoma, right_zygoma = landmarks[234], landmarks[454]
         
-        # Handle key presses
-        key = cv2.waitKey(5) & 0xFF
-        if key == 27:  # ESC key
-            break
-        elif key == 32:  # SPACE key
-            show_mesh = not show_mesh
-            print(f"Face mesh overlay: {'ON' if show_mesh else 'OFF'}")
-    
-    # Cleanup
-    cap.release()
-    cv2.destroyAllWindows()
-    face_mesh.close()
-    print("Program ended")
+        # Vertical Landmarks
+        nasion = landmarks[168]      # Mid-eyes
+        subnasale = landmarks[2]     # Base of nose
+        stomion = landmarks[0]       # Lip center
+        menton = landmarks[152]      # Chin bottom
+        
+        # --- CALCULATIONS ---
+        
+        # 1. Canthal Tilt
+        l_tilt = self.calculate_2d_angle(left_inner, left_outer)
+        r_tilt = self.calculate_2d_angle(right_inner, right_outer) * -1
+        avg_tilt = (l_tilt + r_tilt) / 2
+
+        # 2. Bizygomatic Width
+        bizygo_width = self.euclidean_dist(left_zygoma, right_zygoma)
+
+        # 3. Midface Ratio (Compactness)
+        # Defined here as: Interpupillary Distance / Midface Height
+        # (A higher ratio often implies a more compact, "hunter" eye area structure)
+        ipd = self.euclidean_dist(landmarks[468], landmarks[473]) # 468/473 are iris centers!
+        midface_height = self.euclidean_dist(nasion, subnasale)
+        midface_ratio = ipd / midface_height
+
+        # 4. fWHR (Width to Height)
+        # Width (Bizygomatic) / Height (Nasion to Stomion)
+        upper_face_height = self.euclidean_dist(nasion, stomion)
+        fwhr = bizygo_width / upper_face_height
+
+        # Print Report
+        print(f"\n--- ANALYSIS REPORT: {image_path} ---")
+        print(f"Canthal Tilt:      {avg_tilt:.2f}° {'(Positive)' if avg_tilt > 0 else '(Negative)'}")
+        print(f"fWHR:              {fwhr:.2f} (Target: > 1.9 is broad)")
+        print(f"Midface Ratio:     {midface_ratio:.2f}")
+        print(f"Symmetry Check:    Left Eye Width vs Right: {self.euclidean_dist(left_inner, left_outer):.1f} vs {self.euclidean_dist(right_inner, right_outer):.1f}")
+
+        return {
+            "canthal_tilt": avg_tilt,
+            "fwhr": fwhr,
+            "midface_ratio": midface_ratio
+        }
 
 if __name__ == "__main__":
-    main()
+    # Initialize
+    engine = GeometricEngine()
+    
+    # Run on an actual image
+    # Make sure 'test.jpg' is in the /Users/jaydenchan/CHUD AI/chud-ai/ folder
+    results = engine.analyze("test.jpg")
+    
+    if results:
+        print("\nAnalysis Complete.")
+    else:
+        print("\nCould not analyze the image (check file path).")
