@@ -127,7 +127,8 @@ This is a collaborative project between the maintainers. To contribute:
 
 ## License
 
-[Add your license here]
+[NO LICENSE]
+
 
 ## Authors
 
