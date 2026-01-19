@@ -131,5 +131,5 @@ This is a collaborative project between the maintainers. To contribute:
 
 ## Authors
 
-- Vasup
-- Jayden (Owner)
+- Jayanth Vasupilli
+- Jayden
