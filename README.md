@@ -26,7 +26,8 @@ CHUD.AI utilizes **MediaPipe Face Mesh** to map 468 distinct facial landmarks in
 * **Glassmorphism Dashboard:** A clean, dark-mode web interface built for clarity and aesthetics.
 * **Live Visual Overlays:** Dynamic drawing of measurement lines on the video feed to visualize exactly what is being calculated.
 * **10-Second Scan Mode:** Algorithms average data over a 10-second window to eliminate noise and jitter, providing a "Locked" final score.
-* **Comprehensive Metrics:**
+
+# **Comprehensive Metrics:**
 * 👁️ **Canthal Tilt:** Exact eye angle calculation.
 * 📐 **FWHR:** Facial Width-to-Height Ratio.
 * 📏 **Midface Ratio:** Compactness analysis.
