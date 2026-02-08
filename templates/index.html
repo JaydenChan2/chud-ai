@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHUD.AI | Advanced Facial Analytics</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="video-container">
+        <img src="{{ url_for('video_feed') }}" alt="Video Stream">
+        <div class="scan-overlay" id="scan-overlay">
+            <div class="scan-line"></div>
+            <div class="scan-text">ANALYZING...</div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="header">
+            <h1>CHUD.AI</h1>
+            <div class="status-indicator">
+                <span class="dot"></span> LIVE
+            </div>
+        </div>
+
+        <div class="metrics-container" id="metrics-container">
+            <!-- Metrics will be injected here by JS -->
+            <div class="loading">Waiting for face...</div>
+        </div>
+
+        <div class="controls">
+            <button id="scan-btn" onclick="toggleScan()">START 10s SCAN</button>
+            <div id="quality-msg" class="quality-msg">Position face in center</div>
+        </div>
+    </div>
+
+    <script>
+        let isScanning = false;
+
+        function updateMetrics() {
+            fetch('/api/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('metrics-container');
+
+                    if (!data || Object.keys(data.metrics).length === 0) {
+                        container.innerHTML = '<div class="loading">No face detected</div>';
+                        return;
+                    }
+
+                    // Prioritize final results if available (Freezing the stats)
+                    let displayData = data.metrics;
+                    let isLocked = false;
+
+                    if (data.final_results && Object.keys(data.final_results).length > 0) {
+                        displayData = data.final_results;
+                        isLocked = true;
+                    }
+
+                    let html = '';
+
+                    // Show locked status if applicable
+                    if (isLocked) {
+                        const statusEl = document.querySelector('.status-indicator');
+                        statusEl.innerHTML = '<span class="dot" style="background: cyan; box-shadow: 0 0 8px cyan;"></span> LOCKED RESULT';
+                        statusEl.style.color = 'cyan';
+                    } else {
+                        const statusEl = document.querySelector('.status-indicator');
+                        statusEl.innerHTML = '<span class="dot"></span> LIVE';
+                        statusEl.style.color = 'var(--accent-good)';
+                    }
+
+                    // Define display order and units
+                    const fields = [
+                        { key: 'canthal_tilt', label: 'Canthal Tilt', unit: '°' },
+                        { key: 'fwhr', label: 'FWHR', unit: '' },
+                        { key: 'midface_ratio', label: 'Midface Ratio', unit: '' },
+                        { key: 'facial_symmetry', label: 'Symmetry', unit: '%' },
+                        { key: 'golden_ratio', label: 'Golden Ratio', unit: '%' }
+                    ];
+
+                    fields.forEach(field => {
+                        const val = displayData[field.key] || 0;
+                        const rating = getRating(field.key, val);
+
+                        html += `
+                            <div class="metric-card">
+                                <div class="metric-header">
+                                    <span class="metric-label">${field.label}</span>
+                                    <span class="metric-rating ${rating.className}">${rating.text}</span>
+                                </div>
+                                <div class="metric-value">
+                                    ${val}<span class="unit">${field.unit}</span>
+                                </div>
+                                <div class="progress-bg">
+                                    <div class="progress-bar ${rating.className}" style="width: ${getPercent(field.key, val)}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    container.innerHTML = html;
+
+                    // Update Status
+                    const qualityMsg = document.getElementById('quality-msg');
+                    if (data.quality_warnings && data.quality_warnings.length > 0) {
+                        qualityMsg.innerText = "⚠ " + data.quality_warnings[0];
+                        qualityMsg.style.color = "#ff4444";
+                    } else {
+                        qualityMsg.innerText = "✔ Excellent Conditions";
+                        qualityMsg.style.color = "#00ff88";
+                    }
+
+                    // Handle Scan State
+                    const btn = document.getElementById('scan-btn');
+                    const overlay = document.getElementById('scan-overlay');
+
+                    if (data.is_scanning) {
+                        btn.innerText = `SCANNING ${data.scan_progress}%`;
+                        btn.classList.add('active');
+                        overlay.style.display = 'flex';
+                    } else {
+                        btn.innerText = "START 10s SCAN";
+                        btn.classList.remove('active');
+                        overlay.style.display = 'none';
+                    }
+                })
+                .catch(err => console.error("Error fetching metrics:", err));
+        }
+
+        function getRating(key, val) {
+            if (key === 'canthal_tilt') {
+                if (val >= 4) return { text: 'HUNTER', className: 'good' };
+                if (val >= 0) return { text: 'NEUTRAL', className: 'avg' };
+                return { text: 'NEGATIVE', className: 'bad' };
+            }
+            if (key === 'fwhr') {
+                if (val >= 1.9) return { text: 'BROAD', className: 'good' };
+                if (val >= 1.7) return { text: 'AVERAGE', className: 'avg' };
+                return { text: 'NARROW', className: 'bad' };
+            }
+            if (key === 'midface_ratio') {
+                if (val <= 0.95) return { text: 'COMPACT', className: 'good' };
+                if (val <= 1.05) return { text: 'BALANCED', className: 'avg' };
+                return { text: 'LONG', className: 'bad' };
+            }
+            if (key === 'facial_symmetry') {
+                if (val >= 90) return { text: 'EXCELLENT', className: 'good' };
+                if (val >= 80) return { text: 'GOOD', className: 'avg' };
+                return { text: 'ASYMMETRY', className: 'bad' };
+            }
+            if (key === 'golden_ratio') {
+                if (val >= 90) return { text: 'DIVINE', className: 'good' };
+                if (val >= 80) return { text: 'GOOD', className: 'avg' };
+                return { text: 'AVERAGE', className: 'bad' };
+            }
+            return { text: '', className: '' };
+        }
+
+        function getPercent(key, val) {
+            // Normalize values to 0-100 for progress bars
+            if (key === 'canthal_tilt') return Math.min(100, Math.max(0, (val + 10) * 5)); // -10 to 10 scale
+            if (key === 'fwhr') return Math.min(100, Math.max(0, (val - 1.5) * 100)); // 1.5 to 2.5 scale
+            if (key === 'midface_ratio') return Math.min(100, Math.max(0, (1.2 - val) * 200)); // Inverted: lower is better
+            return val; // Symmetry & Golden Ratio are already 0-100
+        }
+
+        function toggleScan() {
+            fetch('/api/toggle_scan', { method: 'POST' });
+        }
+
+        setInterval(updateMetrics, 200);
+    </script>
+</body>
+
+</html>
