@@ -1,5 +1,5 @@
 # 🗿 CHUD.AI - Facial Analysis Engine
-
+## *Find Your Wabi Sabi* 😉
 **Advanced AI-powered facial geometry analysis with a modern Web Interface.**
 
 CHUD.AI utilizes **MediaPipe Face Mesh** to map 468 distinct facial landmarks in real-time. It calculates complex geometric ratios—such as Canthal Tilt, FWHR, and Midface compactness—to provide an objective analysis of facial aesthetics directly in your browser.
