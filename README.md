@@ -130,5 +130,15 @@ Open your browser and navigate to:
 
 ## 👥 Authors
 
-* **Jayanth Vasupilli**
-* **Jayden Chan**
+* **Jayden Chan (Full-Stack Developer)**
+* **Jayanth Vasupilli (Janitor)** 
+
+
+
+
+
+
+
+
+
+* maybe harold
