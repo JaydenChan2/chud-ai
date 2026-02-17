@@ -87,6 +87,9 @@
                     fields.forEach(field => {
                         const val = displayData[field.key] || 0;
                         const rating = getRating(field.key, val);
+                        const percentile = (data.percentiles && data.percentiles[field.key])
+                            ? `You're in the ${data.percentiles[field.key]}th percentile`
+                            : '';
 
                         html += `
                             <div class="metric-card">
@@ -96,6 +99,9 @@
                                 </div>
                                 <div class="metric-value">
                                     ${val}<span class="unit">${field.unit}</span>
+                                </div>
+                                <div class="metric-percentile" style="font-size: 0.8rem; color: #888; margin-top: 4px;">
+                                    ${percentile}
                                 </div>
                                 <div class="progress-bg">
                                     <div class="progress-bar ${rating.className}" style="width: ${getPercent(field.key, val)}%"></div>

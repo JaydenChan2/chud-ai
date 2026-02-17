@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHUD.AI | Welcome</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+        }
+        .container {
+            max-width: 600px;
+            padding: 2rem;
+        }
+        h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: var(--accent-primary);
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            color: #aaa;
+        }
+        .btn-start {
+            background: linear-gradient(135deg, #00f2ff, #00c3ff);
+            border: none;
+            padding: 1rem 3rem;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #000;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-transform: uppercase;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .btn-start:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CHUD.AI</h1>
+        <p>Advanced Facial Metrics Analysis</p>
+        <p>Are you ready for your face scan?</p>
+        <a href="/scan">
+            <button class="btn-start">I'M READY</button>
+        </a>
+    </div>
+</body>
+</html>

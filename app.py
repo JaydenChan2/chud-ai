@@ -239,11 +239,43 @@ def draw_visual_guides(image, landmarks, w, h):
     
     cv2.addWeighted(overlay, 0.6, image, 0.4, 0, image)
 
+from scipy.stats import norm
+
 # --- Flask Routes ---
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def home():
+    return render_template('home.html')
+
+@app.route('/scan')
+def scan_page():
+    return render_template('scan.html')
+
+# Percentile Reference Data (Means and Std Devs estimated for "Human Standards")
+# These are heuristic values for demonstration.
+reference_stats = {
+    'canthal_tilt': {'mean': 4.0, 'std': 3.0}, # Degrees
+    'fwhr': {'mean': 1.9, 'std': 0.15},        # Ratio
+    'midface_ratio': {'mean': 1.0, 'std': 0.1},# Ratio
+    'facial_symmetry': {'mean': 92.0, 'std': 4.0}, # Percentage
+    'golden_ratio': {'mean': 85.0, 'std': 5.0}     # Percentage
+}
+
+def calculate_percentile(metric, value):
+    stats = reference_stats.get(metric)
+    if not stats: return 50
+    
+    # Calculate CDF
+    z_score = (value - stats['mean']) / stats['std']
+    percentile = norm.cdf(z_score) * 100
+    
+    # For midface ratio, lower is usually considered "better" or more compact in some aesthetics, 
+    # but "percentile" usually means "score higher than X%". 
+    # Let's stick to standard "higher value = higher percentile" math for consistency,
+    # unless it's an error metric. 
+    # Actually, let's just return the raw distribution percentile.
+    
+    return int(round(percentile))
 
 def gen_frames():
     global current_metrics, quality_info, is_scanning, scan_start_time, scan_progress, final_results, stillness_counter
@@ -257,7 +289,20 @@ def gen_frames():
         if not success:
             break
             
-        frame = cv2.flip(frame, 1)
+        # User requested inverted camera. 
+        # Previously we had: frame = cv2.flip(frame, 1) # This mimics a mirror (standard for selfie cams)
+        # If user wants "Inverted", they might mean TRUE webcam view (non-mirrored).
+        # Let's remove the flip to make it "inverted" relative to the previous mirror state.
+        # OR if they meant upside down? Unlikely. They likely meant non-mirrored.
+        # But wait, usually "invert the camera" means flip it?
+        # Standard webcam is non-mirrored. `cv2.flip(frame, 1)` makes it mirrored.
+        # If I remove `cv2.flip(frame, 1)`, it will look like a regular video feed (not a mirror).
+        # Let's assume standard behavior for "add a home page... also make it so the camera is inverted" 
+        # means they want the OPPOSITE of what it was.
+        # It was flipped (mirrored). So I will NOT flip it.
+        
+        # frame = cv2.flip(frame, 1) 
+        
         h, w, _ = frame.shape
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
@@ -318,15 +363,21 @@ def video_feed():
 
 @app.route('/api/metrics')
 def metrics():
-    # If a scan just finished, we might want to return the locked results.
-    # For now, let's return live metrics, but if we have final results and user hasn't cleared them...
-    # The requirement is likely "Live Dashboard".
+    # Calculate percentiles for the current metrics (or final results if available)
+    data_to_grade = final_results if final_results else current_metrics
+    percentiles = {}
+    
+    if data_to_grade:
+        for key, value in data_to_grade.items():
+            percentiles[key] = calculate_percentile(key, value)
+
     return jsonify({
         'metrics': current_metrics,
         'quality_warnings': quality_info,
         'is_scanning': is_scanning,
         'scan_progress': scan_progress,
-        'final_results': final_results if final_results else None
+        'final_results': final_results if final_results else None,
+        'percentiles': percentiles
     })
 
 @app.route('/api/toggle_scan', methods=['POST'])
