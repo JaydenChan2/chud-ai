@@ -5,13 +5,8 @@
 CHUD.AI utilizes **MediaPipe Face Mesh** to map 468 distinct facial landmarks in real-time. It calculates complex geometric ratios—such as Canthal Tilt, FWHR, and Midface compactness—to provide an objective analysis of facial aesthetics directly in your browser.
 
 > **Note:** This tool is for educational and entertainment purposes only.
-
 ---
 
-## 📑 Table of Contents
-
-* [Features](https://www.google.com/search?q=%23-features)
-* [Demo](https://www.google.com/search?q=%23-demo)
 * [Installation](https://www.google.com/search?q=%23-installation)
 * [Usage](https://www.google.com/search?q=%23-usage)
 * [Metrics Explained](https://www.google.com/search?q=%23-metrics-explained)
@@ -34,7 +29,17 @@ CHUD.AI utilizes **MediaPipe Face Mesh** to map 468 distinct facial landmarks in
 * ⚖️ **Symmetry:** Bilateral comparison score.
 * ✨ **Golden Ratio:** Proportions adherence score.
 
+---
 
+## 📺 Demo
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=Jv91GEhY3nk">
+    <img src="https://img.youtube.com/vi/Jv91GEhY3nk/0.jpg" alt="CHUD.AI Facial Analysis Demo" width="100%">
+  </a>
+  <br>
+  <em>Click to watch the real-time neural mapping and aesthetic ratio analysis.</em>
+</p>
 
 ---
 
