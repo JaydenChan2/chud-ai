@@ -137,3 +137,6 @@ Open your browser and navigate to:
 
 * **Jayden Chan**
 * **Jayanth Vasupilli**
+* **Adwait Gadigone**
+* **Hasan Naqvi**
+
