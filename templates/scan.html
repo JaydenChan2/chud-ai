@@ -1,25 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CHUD.AI | Advanced Facial Analytics</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        #webcam-video { display: none; }
+        #canvas { display: none; }
+        #processed-image { width: 100%; height: 100%; object-fit: cover; }
+    </style>
 </head>
-
 <body>
     <div class="video-container">
-        <img src="{{ url_for('video_feed') }}" alt="Video Stream">
+        <!-- The user sees this image which is continuously updated by the server -->
+        <img id="processed-image" src="" alt="Waiting for webcam...">
+        
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+        
         <div class="scan-overlay" id="scan-overlay">
             <div class="scan-line"></div>
             <div class="scan-text">ANALYZING...</div>
         </div>
     </div>
-
+    
     <div class="sidebar">
         <div class="header">
             <h1>CHUD.AI</h1>
@@ -27,116 +33,194 @@
                 <span class="dot"></span> LIVE
             </div>
         </div>
-
         <div class="metrics-container" id="metrics-container">
-            <!-- Metrics will be injected here by JS -->
-            <div class="loading">Waiting for face...</div>
+            <div class="loading">Waiting for camera access...</div>
         </div>
-
         <div class="controls">
             <button id="scan-btn" onclick="toggleScan()">START 10s SCAN</button>
             <div id="quality-msg" class="quality-msg">Position face in center</div>
         </div>
     </div>
-
+    
     <script>
+        const video = document.getElementById('webcam-video');
+        const canvas = document.getElementById('canvas');
+        const img = document.getElementById('processed-image');
+        const ctx = canvas.getContext('2d');
+        
         let isScanning = false;
+        let scanStartTime = 0;
+        let scanDuration = 10000; // 10s
+        let scanBuffer = { canthal_tilt: [], fwhr: [], midface_ratio: [], facial_symmetry: [], golden_ratio: [] };
+        let finalResults = null;
+        let isProcessing = false;
 
-        function updateMetrics() {
-            fetch('/api/metrics')
-                .then(response => response.json())
-                .then(data => {
-                    const container = document.getElementById('metrics-container');
+        // Initialize Webcam on Client
+        navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    requestAnimationFrame(processFrameLoop);
+                };
+            })
+            .catch(err => {
+                document.getElementById('metrics-container').innerHTML = '<div class="loading" style="color:#ff4444">Webcam access denied. Please allow camera permissions.</div>';
+                console.error("Error accessing webcam: ", err);
+            });
 
-                    if (!data || Object.keys(data.metrics).length === 0) {
-                        container.innerHTML = '<div class="loading">No face detected</div>';
-                        return;
-                    }
-
-                    // Prioritize final results if available (Freezing the stats)
-                    let displayData = data.metrics;
-                    let isLocked = false;
-
-                    if (data.final_results && Object.keys(data.final_results).length > 0) {
-                        displayData = data.final_results;
-                        isLocked = true;
-                    }
-
-                    let html = '';
-
-                    // Show locked status if applicable
-                    if (isLocked) {
-                        const statusEl = document.querySelector('.status-indicator');
-                        statusEl.innerHTML = '<span class="dot" style="background: cyan; box-shadow: 0 0 8px cyan;"></span> LOCKED RESULT';
-                        statusEl.style.color = 'cyan';
-                    } else {
-                        const statusEl = document.querySelector('.status-indicator');
-                        statusEl.innerHTML = '<span class="dot"></span> LIVE';
-                        statusEl.style.color = 'var(--accent-good)';
-                    }
-
-                    // Define display order and units
-                    const fields = [
-                        { key: 'canthal_tilt', label: 'Canthal Tilt', unit: '°' },
-                        { key: 'fwhr', label: 'FWHR', unit: '' },
-                        { key: 'midface_ratio', label: 'Midface Ratio', unit: '' },
-                        { key: 'facial_symmetry', label: 'Symmetry', unit: '%' },
-                        { key: 'golden_ratio', label: 'Golden Ratio', unit: '%' }
-                    ];
-
-                    fields.forEach(field => {
-                        const val = displayData[field.key] || 0;
-                        const rating = getRating(field.key, val);
-                        const percentile = (data.percentiles && data.percentiles[field.key])
-                            ? `You're in the ${data.percentiles[field.key]}th percentile`
-                            : '';
-
-                        html += `
-                            <div class="metric-card">
-                                <div class="metric-header">
-                                    <span class="metric-label">${field.label}</span>
-                                    <span class="metric-rating ${rating.className}">${rating.text}</span>
-                                </div>
-                                <div class="metric-value">
-                                    ${val}<span class="unit">${field.unit}</span>
-                                </div>
-                                <div class="metric-percentile" style="font-size: 0.8rem; color: #888; margin-top: 4px;">
-                                    ${percentile}
-                                </div>
-                                <div class="progress-bg">
-                                    <div class="progress-bar ${rating.className}" style="width: ${getPercent(field.key, val)}%"></div>
-                                </div>
-                            </div>
-                        `;
+        // Send frames sequentially to backend API
+        async function processFrameLoop() {
+            if (!isProcessing && video.readyState >= 2) {
+                isProcessing = true;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Reduce quality slightly for faster network transmission to Vercel
+                const frameBase64 = canvas.toDataURL('image/jpeg', 0.6);
+                
+                try {
+                    const response = await fetch('/api/process_frame', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: frameBase64 })
                     });
-
-                    container.innerHTML = html;
-
-                    // Update Status
-                    const qualityMsg = document.getElementById('quality-msg');
-                    if (data.quality_warnings && data.quality_warnings.length > 0) {
-                        qualityMsg.innerText = "⚠ " + data.quality_warnings[0];
-                        qualityMsg.style.color = "#ff4444";
-                    } else {
-                        qualityMsg.innerText = "✔ Excellent Conditions";
-                        qualityMsg.style.color = "#00ff88";
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.image) {
+                            img.src = data.image; // Overlay guidelines
+                        }
+                        updateUI(data);
                     }
+                } catch (e) {
+                    console.error("API error:", e);
+                }
+                isProcessing = false;
+            }
+            // Keep looping. We throttle to about 10fps to avoid hammering serverless functions
+            setTimeout(() => requestAnimationFrame(processFrameLoop), 100); 
+        }
 
-                    // Handle Scan State
-                    const btn = document.getElementById('scan-btn');
-                    const overlay = document.getElementById('scan-overlay');
+        // Helper to get median from buffer
+        function getMedian(arr) {
+            if (arr.length === 0) return 0;
+            const s = [...arr].sort((a,b) => a - b);
+            return s[Math.floor(s.length/2)];
+        }
 
-                    if (data.is_scanning) {
-                        btn.innerText = `SCANNING ${data.scan_progress}%`;
-                        btn.classList.add('active');
-                        overlay.style.display = 'flex';
-                    } else {
-                        btn.innerText = "START 10s SCAN";
-                        btn.classList.remove('active');
-                        overlay.style.display = 'none';
-                    }
-                })
-                .catch(err => console.error("Error fetching metrics:", err));
+        function updateUI(data) {
+            const container = document.getElementById('metrics-container');
+            const btn = document.getElementById('scan-btn');
+            const overlay = document.getElementById('scan-overlay');
+            const qualityMsg = document.getElementById('quality-msg');
+            const statusIndicator = document.querySelector('.status-indicator');
+            
+            if (isScanning) {
+                const elapsed = Date.now() - scanStartTime;
+                const progress = Math.min(100, Math.floor((elapsed / scanDuration) * 100));
+                
+                if (data.metrics && Object.keys(data.metrics).length > 0) {
+                    scanBuffer.canthal_tilt.push(data.metrics.canthal_tilt || 0);
+                    scanBuffer.fwhr.push(data.metrics.fwhr || 0);
+                    scanBuffer.midface_ratio.push(data.metrics.midface_ratio || 0);
+                    scanBuffer.facial_symmetry.push(data.metrics.facial_symmetry || 0);
+                    scanBuffer.golden_ratio.push(data.metrics.golden_ratio || 0);
+                }
+                
+                btn.innerText = `SCANNING ${progress}%`;
+                btn.classList.add('active');
+                overlay.style.display = 'flex';
+                
+                if (elapsed >= scanDuration) {
+                    isScanning = false;
+                    btn.innerText = "START 10s SCAN";
+                    btn.classList.remove('active');
+                    overlay.style.display = 'none';
+                    
+                    // Final calculation
+                    finalResults = {
+                        canthal_tilt: getMedian(scanBuffer.canthal_tilt),
+                        fwhr: getMedian(scanBuffer.fwhr),
+                        midface_ratio: getMedian(scanBuffer.midface_ratio),
+                        facial_symmetry: getMedian(scanBuffer.facial_symmetry),
+                        golden_ratio: getMedian(scanBuffer.golden_ratio),
+                    };
+                }
+            }
+            
+            let displayData = finalResults ? finalResults : data.metrics;
+            
+            if (finalResults) {
+                statusIndicator.innerHTML = '<span class="dot" style="background: cyan; box-shadow: 0 0 8px cyan;"></span> LOCKED RESULT';
+                statusIndicator.style.color = 'cyan';
+            } else {
+                statusIndicator.innerHTML = '<span class="dot"></span> LIVE';
+                statusIndicator.style.color = 'var(--accent-good)';
+            }
+            
+            if (!displayData || Object.keys(displayData).length === 0) {
+                 if (!finalResults) {
+                    container.innerHTML = '<div class="loading">No face detected</div>';
+                 }
+                 return;
+            }
+            
+            if (data.warnings && data.warnings.length > 0) {
+                qualityMsg.innerText = "⚠ " + data.warnings[0];
+                qualityMsg.style.color = "#ff4444";
+            } else {
+                qualityMsg.innerText = "✔ Excellent Conditions";
+                qualityMsg.style.color = "#00ff88";
+            }
+            
+            // Build Metric Cards HTML
+            let html = '';
+            const fields = [
+                { key: 'canthal_tilt', label: 'Canthal Tilt', unit: '°' },
+                { key: 'fwhr', label: 'FWHR', unit: '' },
+                { key: 'midface_ratio', label: 'Midface Ratio', unit: '' },
+                { key: 'facial_symmetry', label: 'Symmetry', unit: '%' },
+                { key: 'golden_ratio', label: 'Golden Ratio', unit: '%' }
+            ];
+
+            fields.forEach(field => {
+                const valstr = (displayData[field.key] || 0).toFixed(2);
+                const val = parseFloat(valstr);
+                const rating = getRating(field.key, val);
+                const percentileStr = (data.percentiles && data.percentiles[field.key]) 
+                    ? `You're in the ${data.percentiles[field.key]}th percentile` 
+                    : '';
+
+                html += `
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <span class="metric-label">${field.label}</span>
+                            <span class="metric-rating ${rating.className}">${rating.text}</span>
+                        </div>
+                        <div class="metric-value">
+                            ${valstr}<span class="unit">${field.unit}</span>
+                        </div>
+                        <div class="metric-percentile" style="font-size: 0.8rem; color: #888; margin-top: 4px;">
+                            ${percentileStr}
+                        </div>
+                        <div class="progress-bg">
+                            <div class="progress-bar ${rating.className}" style="width: ${getPercent(field.key, val)}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function toggleScan() {
+            if (isScanning) return;
+            scanBuffer = { canthal_tilt: [], fwhr: [], midface_ratio: [], facial_symmetry: [], golden_ratio: [] };
+            finalResults = null;
+            scanStartTime = Date.now();
+            isScanning = true;
         }
 
         function getRating(key, val) {
@@ -169,19 +253,12 @@
         }
 
         function getPercent(key, val) {
-            // Normalize values to 0-100 for progress bars
-            if (key === 'canthal_tilt') return Math.min(100, Math.max(0, (val + 10) * 5)); // -10 to 10 scale
-            if (key === 'fwhr') return Math.min(100, Math.max(0, (val - 1.5) * 100)); // 1.5 to 2.5 scale
-            if (key === 'midface_ratio') return Math.min(100, Math.max(0, (1.2 - val) * 200)); // Inverted: lower is better
-            return val; // Symmetry & Golden Ratio are already 0-100
+            if (key === 'canthal_tilt') return Math.min(100, Math.max(0, (val + 10) * 5));
+            if (key === 'fwhr') return Math.min(100, Math.max(0, (val - 1.5) * 100));
+            if (key === 'midface_ratio') return Math.min(100, Math.max(0, (1.2 - val) * 200));
+            return val; 
         }
 
-        function toggleScan() {
-            fetch('/api/toggle_scan', { method: 'POST' });
-        }
-
-        setInterval(updateMetrics, 200);
     </script>
 </body>
-
 </html>
