@@ -1,6 +1,5 @@
 import math
 import numpy as np
-from scipy.stats import norm
 from .geometry import (
     get_pixel_coords, 
     calculate_distance, 
@@ -109,6 +108,6 @@ def calculate_percentile(metric, value):
     if not stats: return 50
     
     z_score = (value - stats['mean']) / stats['std']
-    percentile = norm.cdf(z_score) * 100
+    percentile = ((1.0 + math.erf(z_score / math.sqrt(2.0))) / 2.0) * 100
     
     return int(round(percentile))
